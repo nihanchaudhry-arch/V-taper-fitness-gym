@@ -901,7 +901,7 @@ function ensureDefaults() {
   }
   for (const [k, v] of Object.entries(defaultProfile())) if (p[k] === undefined) { p[k] = v; ch = true; }
   for (const k of Object.keys(DEFAULT_EQUIP)) if (p.equipment[k] === undefined) { p.equipment[k] = true; ch = true; }
-  if ((p.programVersion || 1) < 3) { // move history from the original 4-day plan onto the new days
+  if ((p.programVersion || 1) < 3 || Store.keys('s_').some(k => /^D\d$/.test((Store.get(k) || {}).dk))) { // move history from the original 4-day plan onto the new days
     const MAP = { D1: 'W1', D2: 'W3', D3: 'W4', D4: 'W2' };
     for (const k of Store.keys('s_')) {
       const s = Store.get(k); if (!s || !MAP[s.dk]) continue; s.dk = MAP[s.dk];
@@ -1025,7 +1025,7 @@ function seqMap() {
   const todaySess = (act && act.date === t) ? act : (last && last.date === t ? last : null);
   if (todaySess) { map[t] = todaySess.dk; prev = { date: t, dk: todaySess.dk }; cur = { dk: nextDk(todaySess.dk), date: addDays(t, GAP[todaySess.dk]) }; }
   else if (last) { let nd = addDays(last.date, GAP[last.dk]); if (nd < t) nd = t; prev = { date: last.date, dk: last.dk }; cur = { dk: nextDk(last.dk), date: nd }; }
-  else cur = { dk: 'D1', date: t };
+  else cur = { dk: 'W1', date: t };
   const end = addDays(t, 60);
   while (cur.date <= end) {
     if (prev) for (let d = addDays(prev.date, 1); d < cur.date; d = addDays(d, 1)) if (d >= t) map[d] = GAPDAY[prev.dk];
@@ -1044,6 +1044,7 @@ function dayKeyFor(date) {
 }
 const avail = id => (EX[id].req || []).every(t => P().equipment[t] !== false) && !(P().unavailEx || []).includes(id);
 function resolveItems(dk, date) {
+  if (!PROGRAM[dk]) dk = ({ D1: 'W1', D2: 'W3', D3: 'W4', D4: 'W2' })[dk] || 'W1';
   const ov = (P().program || {})[dk] || {}; const ph = PROGRAM[dk].legacy ? null : phaseOf(progWeek(date || today()));
   return PROGRAM[dk].items.map(it => {
     const o = ov[it.slot] || {}; let sets = o.sets || it.sets;
@@ -1132,7 +1133,7 @@ function latest(field, before) { const m = measures().filter(x => x[field] != nu
 function avgWeight(end, days = 7) { const start = addDays(end, -(days - 1)); const w = measures().filter(m => m.weight != null && m.date >= start && m.date <= end).map(m => m.weight); return w.length ? avg(w) : null; }
 function rolling(d) { return avgWeight(d, 7); }
 function dayTotals(d) { const o = getDay(d); return sumItems(o ? o.log : []); }
-function plannedTraining(start, end) { const out = []; for (let d = start; d <= end; d = addDays(d, 1)) if (/^D/.test(dayKeyFor(d))) out.push(d); return out; }
+function plannedTraining(start, end) { const out = []; for (let d = start; d <= end; d = addDays(d, 1)) if (/^W/.test(dayKeyFor(d))) out.push(d); return out; }
 function adherence(n = 14) {
   const end = addDays(today(), -1); const start = addDays(end, -(n - 1)); const p = P();
   let logged = 0, kcalOk = 0, protOk = 0;
@@ -1663,7 +1664,7 @@ function vHome() {
     const items = act.ex; const nDone = act.ex.filter(e => e.sets.some(s => s.done) || e.skipped).length;
     w += '<h1>' + esc(PROGRAM[act.dk].name) + '</h1><p class="sub">' + DK_LABEL[act.dk] + ' · in progress · ' + nDone + ' of ' + items.length + ' exercises started</p>' +
       '<div class="row gap"><a class="btn primary big" href="#session">Resume workout</a></div><div class="row gap" style="margin-top:8px"><a class="btn ghost small" href="#plan">Plan by date</a></div>';
-  } else if (/^D/.test(dk)) {
+  } else if (/^W/.test(dk)) {
     const items = resolveItems(dk);
     const ph = phaseOf(progWeek(t));
     w += '<h1>' + esc(PROGRAM[dk].name) + '</h1><p class="sub">' + DK_LABEL[dk] + ' · ' + items.length + ' exercises · about ' + estMinutes(items) + ' min · week ' + progWeek(t) + ' of 13 (' + ph.name + ')</p>' +
@@ -1708,7 +1709,7 @@ function spark() {
 }
 function tasksFor(d) {
   const p = P(); const o = day(d); const t = sumItems(o.log); const dk = dayKeyFor(d); const L = [];
-  if (/^D/.test(dk)) L.push({ k: 'workout', label: 'Complete today\'s workout', auto: !!completedOn(d) });
+  if (/^W/.test(dk)) L.push({ k: 'workout', label: 'Complete today\'s workout', auto: !!completedOn(d) });
   L.push({ k: 'protein', label: 'Meet the protein target (' + p.protein + ' g)', auto: t.p >= p.protein * 0.97, sub: r0(t.p) + ' g so far' });
   L.push({ k: 'kcal', label: 'Stay within the calorie target', auto: false, sub: r0(t.k) + ' of ' + p.kcal + ' kcal' + (t.k > p.kcal * 1.05 ? ' — over' : '') });
   L.push({ k: 'steps', label: 'Walk ' + p.steps.toLocaleString() + ' steps', auto: (o.rec.steps || 0) >= p.steps, sub: o.rec.steps ? o.rec.steps.toLocaleString() + ' logged' : '' });
@@ -1789,8 +1790,8 @@ function setTable(s, i, it, x) {
 }
 function vWorkoutPick() {
   const t = today(); const dk = dayKeyFor(t); const done = completedOn(t);
-  let h = '<section class="hero"><div class="eyebrow">' + esc(fmtDate(t)) + ' · scheduled: ' + DK_LABEL[dk] + '</div><h1>' + (done ? 'Workout complete' : /^D/.test(dk) ? esc(PROGRAM[dk].name) : 'No workout scheduled') + '</h1>' +
-    (done ? summary(done) : /^D/.test(dk) ? '<button class="btn primary big" data-act="start" data-dk="' + dk + '">Start ' + DK_LABEL[dk] + '</button>' : '<p class="sub">Today is a ' + (dk === 'walk' ? 'recovery/walking' : 'rest') + ' day. Recovery is part of the plan.</p>') + '<div class="row gap" style="margin-top:8px"><a class="btn ghost small" href="#plan">Exercises & videos by date</a></div></section>';
+  let h = '<section class="hero"><div class="eyebrow">' + esc(fmtDate(t)) + ' · scheduled: ' + DK_LABEL[dk] + '</div><h1>' + (done ? 'Workout complete' : /^W/.test(dk) ? esc(PROGRAM[dk].name) : 'No workout scheduled') + '</h1>' +
+    (done ? summary(done) : /^W/.test(dk) ? '<button class="btn primary big" data-act="start" data-dk="' + dk + '">Start ' + DK_LABEL[dk] + '</button>' : '<p class="sub">Today is a ' + (dk === 'walk' ? 'recovery/walking' : 'rest') + ' day. Recovery is part of the plan.</p>') + '<div class="row gap" style="margin-top:8px"><a class="btn ghost small" href="#plan">Exercises & videos by date</a></div></section>';
   h += '<section class="card"><div class="card-h"><h2>The four-day program</h2></div><p class="muted sm">Pick the main exercise or one alternative for each slot. Alternatives replace an exercise; they are not extra work.</p>';
   for (const k of Object.keys(PROGRAM)) {
     const items = resolveItems(k);
@@ -1993,7 +1994,7 @@ function vCalendar() {
   const first = new Date(y, mo - 1, 1); const startDow = (first.getDay() + 6) % 7; const dim = new Date(y, mo, 0).getDate();
   let cells = ''; for (let i = 0; i < startDow; i++) cells += '<span></span>';
   for (let d = 1; d <= dim; d++) {
-    const ds = y + '-' + z2(mo) + '-' + z2(d); const dk = dayKeyFor(ds); const done = completedOn(ds); const train = /^D/.test(dk);
+    const ds = y + '-' + z2(mo) + '-' + z2(d); const dk = dayKeyFor(ds); const done = completedOn(ds); const train = /^W/.test(dk);
     const cls = [done ? 'done' : '', train ? 'train' : '', ds === t ? 'today' : '', ds === ui.calSel ? 'sel' : '', ds < t && train && !done && ds >= P().startDate ? 'miss' : ''].join(' ');
     cells += '<button class="cd ' + cls + '" data-act="calSel" data-d="' + ds + '"><span>' + d + '</span><small>' + (done ? DK_LABEL[done.dk].replace('Day ', 'D') : train ? dk : dk === 'walk' ? 'walk' : '') + '</small></button>';
   }
@@ -2001,7 +2002,7 @@ function vCalendar() {
   let h = '<h1 class="pg">Calendar</h1><section class="card"><div class="row between"><button class="btn tiny ghost" data-act="calM" data-v="' + prevM + '" aria-label="Previous month">‹</button><b>' + MON[mo - 1] + ' ' + y + '</b><button class="btn tiny ghost" data-act="calM" data-v="' + nextM + '" aria-label="Next month">›</button></div>' +
     '<div class="cal"><b>M</b><b>T</b><b>W</b><b>T</b><b>F</b><b>S</b><b>S</b>' + cells + '</div><div class="legend sm"><i class="lg-done"></i> completed <i class="lg-train"></i> scheduled <i class="lg-miss"></i> missed</div></section>';
   const sd = ui.calSel || t; const ss = sessionsOn(sd).filter(s => s.status !== 'abandoned'); const dt = dayTotals(sd); const mm = Store.get('meas_' + sd);
-  h += '<section class="card"><div class="card-h"><h2>' + esc(fmtDate(sd)) + '</h2></div><p class="muted">' + (sd < today() ? 'Done: ' : 'Planned: ') + DK_LABEL[dayKeyFor(sd)] + (/^D/.test(dayKeyFor(sd)) ? ' — ' + esc(PROGRAM[dayKeyFor(sd)].name) : '') + '</p>' +
+  h += '<section class="card"><div class="card-h"><h2>' + esc(fmtDate(sd)) + '</h2></div><p class="muted">' + (sd < today() ? 'Done: ' : 'Planned: ') + DK_LABEL[dayKeyFor(sd)] + (/^W/.test(dayKeyFor(sd)) ? ' — ' + esc(PROGRAM[dayKeyFor(sd)].name) : '') + '</p>' +
     '<a class="btn ghost small" href="#plan" data-act="planOpen" data-d="' + sd + '">Open exercises for this date</a>' + (ss.length ? ss.map(s => '<h3>' + DK_LABEL[s.dk] + ' · ' + (s.status === 'done' ? 'completed' : 'in progress') + '</h3>' + summary(s)).join('') : '') +
     (dt.k ? '<p class="nums">Food: ' + r0(dt.k) + ' kcal · ' + r0(dt.p) + ' g protein</p>' : '') + (mm ? '<p class="nums">Measured: ' + [mm.weight != null ? toU(mm.weight) + ' ' + wU() : '', mm.waist != null ? 'waist ' + mm.waist + ' cm' : ''].filter(Boolean).join(' · ') + '</p>' : '') + '</section>';
   return h;
@@ -2021,7 +2022,7 @@ function vProfile() {
   if (T === 'schedule') h += '<div class="seg" style="margin-bottom:8px">' + [['sequence', 'Follow my last workout'], ['weekday', 'Fixed weekdays']].map(([k, l]) => '<button data-act="schedMode" data-v="' + k + '" class="' + ((p.schedMode || 'sequence') === k ? 'on' : '') + '">' + l + '</button>').join('') + '</div>' +
     ((p.schedMode || 'sequence') === 'sequence' ? '<p>The next workout always follows the last one you completed: Day 1 → Day 2 → Day 3 → walk → Day 4 → Day 5 → rest → Day 1 (5 gym days a week). If you miss a day, the same workout moves to the next day instead of being skipped.</p>' : '') +
     ((p.schedMode || 'sequence') === 'weekday' ? '<p class="muted sm">Choose what each weekday holds. The default is Mon Day 1, Tue Day 2, Wed Day 3, Thu walk, Fri Day 4, Sat Day 5, Sun rest.</p>' + [1, 2, 3, 4, 5, 6, 0].map(d => '<div class="field row between"><label for="sch' + d + '">' + DOW[d] + '</label><select id="sch' + d + '" data-sched="' + d + '">' + Object.entries(DK_LABEL).filter(([k]) => k !== 'past' && !(PROGRAM[k] && PROGRAM[k].legacy)).map(([k, l]) => '<option value="' + k + '"' + (p.schedule[d] === k ? ' selected' : '') + '>' + l + (PROGRAM[k] ? ' — ' + PROGRAM[k].short : '') + '</option>').join('') + '</select></div>').join('') +
-    '<p class="muted sm">' + Object.values(p.schedule).filter(v => /^D/.test(v)).length + ' training days per week.</p>' : '');
+    '<p class="muted sm">' + Object.values(p.schedule).filter(v => /^W/.test(v)).length + ' training days per week.</p>' : '');
   if (T === 'diet') h += '<div class="grid2">' + fld('dEgg', 'Eggs allowed per day (whole + whites)', p.eggLimit, 'inputmode="numeric" data-prof="eggLimit"') + fld('dPrep', 'Max prep time per meal (min)', p.maxPrep, 'inputmode="numeric" data-prof="maxPrep"') + '</div>' +
     '<p>Diet: ' + esc(p.diet) + '</p><p class="muted sm">Excluded foods: ' + (p.exclude.length ? esc(p.exclude.map(id => (food(id) || {}).name || id).join(', ')) : 'none') + '. Manage these in Nutrition → Foods.</p>';
   if (T === 'equip') h += '<p class="muted sm">Untick anything your gym doesn’t have. Workouts automatically swap in an available alternative.</p><div class="eqgrid">' + Object.entries(EQUIP_TAGS).map(([k, l]) => '<label class="tog"><input type="checkbox" id="eq_' + k + '" data-equip="' + k + '"' + (p.equipment[k] !== false ? ' checked' : '') + '> ' + l + '</label>').join('') + '</div>' +
