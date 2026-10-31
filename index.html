@@ -747,29 +747,8 @@ const MUSCLES = [
  { group:'Core', name:'Transverse abdominis and obliques', loc:'Deep and side abdominal wall.', fn:'Trunk stability and resistance to unwanted movement.', ex:['plank','dead_bug','side_plank'] }
 ];
 
-// ===== Four-day program (spec §7) =====
-const PROGRAM = {
- D1: { legacy:true, name:'Back width, thickness & biceps', short:'Back & biceps', muscles:['Lats','Middle back','Side delts','Biceps'], items:[
-   { slot:'a', main:'lat_pulldown', alts:['assisted_pullup','neutral_pulldown','band_pulldown'], sets:3, lo:8, hi:12, rest:120 },
-   { slot:'b', main:'seated_cable_row', alts:['chest_supported_row','machine_row','band_row'], sets:3, lo:8, hi:12, rest:120 },
-   { slot:'c', main:'db_lateral_raise', alts:['cable_lateral_raise','machine_lateral_raise','band_lateral_raise'], sets:3, lo:12, hi:20, rest:75 },
-   { slot:'d', main:'db_curl', alts:['ez_curl','cable_curl'], sets:3, setsMin:2, lo:10, hi:15, rest:75 } ] },
- D2: { legacy:true, name:'Chest, shoulders & triceps', short:'Chest & shoulders', muscles:['Upper chest','Front & side delts','Triceps'], items:[
-   { slot:'a', main:'incline_db_press', alts:['incline_machine_press','incline_bb_press','push_up'], sets:3, lo:8, hi:12, rest:120 },
-   { slot:'b', main:'db_shoulder_press', alts:['machine_shoulder_press','seated_bb_press'], sets:3, lo:8, hi:12, rest:120 },
-   { slot:'c', main:'db_lateral_raise', alts:['cable_lateral_raise','machine_lateral_raise','band_lateral_raise'], sets:3, lo:12, hi:20, rest:75 },
-   { slot:'d', main:'triceps_pushdown', alts:['overhead_cable_ext','db_overhead_ext'], sets:3, lo:10, hi:15, rest:75 } ] },
- D3: { legacy:true, name:'Back thickness, lats & rear delts', short:'Back & rear delts', muscles:['Lats','Upper back','Rear delts','Side delts'], items:[
-   { slot:'a', main:'assisted_pullup', alts:['lat_pulldown','neutral_pulldown','band_assisted_pullup'], sets:3, lo:6, hi:10, rest:120 },
-   { slot:'b', main:'chest_supported_row', alts:['seated_cable_row','machine_row','band_row'], sets:3, lo:8, hi:12, rest:120 },
-   { slot:'c', main:'reverse_pec_deck', alts:['cable_rear_fly','bent_reverse_fly'], sets:3, lo:12, hi:20, rest:75 },
-   { slot:'d', main:'db_lateral_raise', alts:['cable_lateral_raise','machine_lateral_raise','band_lateral_raise'], sets:3, lo:12, hi:20, rest:75 } ] },
- D4: { legacy:true, name:'Legs & core', short:'Legs & core', muscles:['Quads','Glutes','Hamstrings','Core'], items:[
-   { slot:'a', main:'leg_press', alts:['goblet_squat','bb_squat','bw_squat'], sets:3, lo:8, hi:12, rest:150 },
-   { slot:'b', main:'db_rdl', alts:['bb_rdl','cable_pull_through'], sets:3, lo:8, hi:12, rest:120 },
-   { slot:'c', main:'seated_leg_curl', alts:['lying_leg_curl','ball_leg_curl'], sets:3, lo:10, hi:15, rest:90 },
-   { slot:'d', main:'plank', alts:['dead_bug','reverse_crunch'], sets:3, lo:30, hi:60, rest:60 } ] }
-};
+// ===== Training program (filled below) =====
+const PROGRAM = {};
 
 
 // ===== 5-day V-taper program (3–4 month plan). D1–D4 above are the original 4-day plan, kept for history. =====
@@ -903,7 +882,7 @@ function defaultProfile() {
     level: 'Beginner', location: 'Gym', diet: 'Vegetarian with eggs; no meat', goal: 'V-taper physique',
     goals2: 'Reduce waist, gain muscle, improve strength', freq: 5, maxEx: 6,
     kcal: 1900, protein: 140, fatMin: 55, fatMax: 60, lossMin: 0.25, lossMax: 0.5,
-    steps: 7000, sleep: 7.5, water: 0, eggLimit: 6, maxPrep: 30, exclude: [], injuries: '', programVersion: 2, prog5Start: today(),
+    steps: 7000, sleep: 7.5, water: 0, eggLimit: 6, maxPrep: 30, exclude: [], injuries: '', programVersion: 3, prog5Start: today(),
     equipment: { ...DEFAULT_EQUIP }, schedule: { 0: 'rest', 1: 'W1', 2: 'W2', 3: 'W3', 4: 'walk', 5: 'W4', 6: 'W5' },
     program: {}, schedMode: 'sequence', units: 'kg', sound: true, wake: true, startDate: today()
   };
@@ -922,6 +901,18 @@ function ensureDefaults() {
   }
   for (const [k, v] of Object.entries(defaultProfile())) if (p[k] === undefined) { p[k] = v; ch = true; }
   for (const k of Object.keys(DEFAULT_EQUIP)) if (p.equipment[k] === undefined) { p.equipment[k] = true; ch = true; }
+  if ((p.programVersion || 1) < 3) { // move history from the original 4-day plan onto the new days
+    const MAP = { D1: 'W1', D2: 'W3', D3: 'W4', D4: 'W2' };
+    for (const k of Store.keys('s_')) {
+      const s = Store.get(k); if (!s || !MAP[s.dk]) continue; s.dk = MAP[s.dk];
+      if (s.status === 'active') {
+        const old = s.ex; s.idx = 0;
+        s.ex = resolveItems(s.dk, s.date).map(it => { const prev = old.find(e => it.options.includes(e.exId) && e.sets.some(z => z.done)); return prev ? { ...prev, slot: it.slot } : { slot: it.slot, exId: it.main, sets: Array.from({ length: it.sets }, () => ({ w: null, r: null, rir: 2, done: false })), skipped: false, tech: true }; });
+      }
+      Store.put(k, s);
+    }
+    p.programVersion = 3; ch = true;
+  }
   if (ch) saveProfile(p);
 }
 
@@ -1083,7 +1074,12 @@ function newSession(dk, date) {
   Store.put(s.id, s); return s;
 }
 function saveSession(s) { Store.put(s.id, s); }
-function itemFor(s, i) { return resolveItems(s.dk)[i]; }
+function sessionItems(s) {
+  const items = resolveItems(s.dk, s.date);
+  return s.ex.map((e, i) => items.find(it => it.slot === e.slot && it.options.includes(e.exId)) || items.find(it => it.options.includes(e.exId)) || items[i] ||
+    { slot: e.slot, main: e.exId, sets: e.sets.length || 3, lo: 8, hi: 12, rest: 90, options: [e.exId] });
+}
+function itemFor(s, i) { return sessionItems(s)[i]; }
 
 // ===== Progression engine =====
 function history(exId, excludeId) {
@@ -1638,7 +1634,7 @@ function stepsHTML(id) {
 const ui = { foodTab: 'log', foodDate: null, q: '', fEquip: '', fGroup: '', calMonth: null, calSel: null, progEx: null, pickDay: null, confirm: null, skipTask: null, timer: null, exSheet: null, profTab: 'body' };
 const ROUTES = ['home', 'workout', 'session', 'plan', 'food', 'progress', 'more', 'exercises', 'muscles', 'calendar', 'profile', 'prefs', 'safety'];
 const route = () => { const h = (location.hash || '').slice(1); return ROUTES.includes(h) ? h : 'home'; };
-const DK_LABEL = { W1: 'Day 1', W2: 'Day 2', W3: 'Day 3', W4: 'Day 4', W5: 'Day 5', D1: 'Old plan Day 1', D2: 'Old plan Day 2', D3: 'Old plan Day 3', D4: 'Old plan Day 4', walk: 'Recovery or walking', rest: 'Rest', past: 'No workout logged' };
+const DK_LABEL = { W1: 'Day 1', W2: 'Day 2', W3: 'Day 3', W4: 'Day 4', W5: 'Day 5',  walk: 'Recovery or walking', rest: 'Rest', past: 'No workout logged' };
 const NAV_OF = r => ['plan', 'session', 'calendar'].includes(r) ? 'workout' : ['exercises', 'muscles', 'profile', 'prefs', 'safety'].includes(r) ? 'more' : r;
 const icon = n => ({
   home: '<path d="M3 11.5 12 4l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
@@ -1664,7 +1660,7 @@ function vHome() {
   const t = today(); const p = P(); const dk = dayKeyFor(t); const act = activeSession(); const done = completedOn(t);
   let w = '<section class="hero"><div class="eyebrow">' + esc(fmtDate(t)) + '</div>';
   if (act) {
-    const items = resolveItems(act.dk); const nDone = act.ex.filter(e => e.sets.some(s => s.done) || e.skipped).length;
+    const items = act.ex; const nDone = act.ex.filter(e => e.sets.some(s => s.done) || e.skipped).length;
     w += '<h1>' + esc(PROGRAM[act.dk].name) + '</h1><p class="sub">' + DK_LABEL[act.dk] + ' · in progress · ' + nDone + ' of ' + items.length + ' exercises started</p>' +
       '<div class="row gap"><a class="btn primary big" href="#session">Resume workout</a></div><div class="row gap" style="margin-top:8px"><a class="btn ghost small" href="#plan">Plan by date</a></div>';
   } else if (/^D/.test(dk)) {
@@ -1743,7 +1739,7 @@ function recoveryCard(d) {
 function vWorkout() {
   const s = activeSession();
   if (!s) return vWorkoutCal();
-  const items = resolveItems(s.dk); const i = Math.min(s.idx, items.length - 1); const it = items[i]; const e = s.ex[i];
+  const items = sessionItems(s); const i = Math.min(s.idx, items.length - 1); const it = items[i]; const e = s.ex[i];
   if (!e) return vWorkoutCal();
   const x = EX[e.exId]; const sug = suggest(e.exId, it, s.id); const prev = history(e.exId, s.id)[0];
   let h = '<section class="wk-head"><div class="row between"><div class="eyebrow">' + DK_LABEL[s.dk] + ' · ' + esc(PROGRAM[s.dk].short) + '</div><a class="link sm" href="#plan">Plan by date</a></div><div class="dots">' + items.map((_, j) => {
@@ -2131,7 +2127,7 @@ function dayPanel(sel) {
       (sel === t ? '<p class="muted sm">Want to train anyway? Pick a workout:</p><div class="row gap wrap-r">' + SEQ.map(k => '<button class="btn small ghost" data-act="start" data-dk="' + k + '">' + DK_LABEL[k] + '</button>').join('') + '</div>' : '') + '</section>' +
       (dk === 'walk' ? ['treadmill_walk', 'bike', 'elliptical'].map((id, i) => planExercise({ sets: 1, lo: 15, hi: 25, rest: 0, options: [id] }, id, i)).join('') : '');
   }
-  const items = resolveItems(dk, sel); const sess = done || open; const wk = progWeek(sel), ph = phaseOf(wk); const canTick = sel <= t && (open || (!done && sel === t));
+  const sess = done || open; const items = sess ? sessionItems(sess) : resolveItems(dk, sel); const wk = progWeek(sel), ph = phaseOf(wk); const canTick = sel <= t && (open || (!done && sel === t));
   const nDone = sess ? sess.ex.filter(exDone).length : 0;
   h += '<section class="hero slim"><div class="eyebrow">' + esc(head) + (sel === t ? ' · today' : '') + (done ? ' · completed ✓' : open ? ' · in progress' : sel > t ? ' · planned' : '') + '</div><h2>' + DK_LABEL[dk] + ' — ' + esc(PROGRAM[dk].name) + '</h2>' +
     '<p class="sub">' + items.length + ' exercises · about ' + estMinutes(items) + ' min · ' + esc(PROGRAM[dk].muscles.join(', ')) + (sess && !done ? ' · ' + nDone + '/' + items.length + ' done' : '') + '</p>' +
