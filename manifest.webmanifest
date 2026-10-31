@@ -1,0 +1,15 @@
+{
+  "name": "V-Taper Coach",
+  "short_name": "V-Taper",
+  "description": "Daily workouts, nutrition and progress for a V-taper physique.",
+  "start_url": "./index.html#home",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#eef0f4",
+  "theme_color": "#1f43c9",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
