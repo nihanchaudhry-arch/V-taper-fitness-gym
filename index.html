@@ -305,6 +305,9 @@ figure { margin: 0; } figure img { width: 100%; aspect-ratio: 3 / 4; object-fit:
 .lack { border-top: 1px solid var(--line); padding: 8px 0; } .lack-h { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; } .lack ul { margin: 4px 0; font-size: .92rem; } .lack p { margin: 2px 0; font-size: .92rem; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
+/* supplements */
+.card.supp.on { border: 1px solid var(--good); }
+.supptbl { width: 100%; border-collapse: collapse; font-size: .85rem; } .supptbl td { padding: 3px 4px; border-top: 1px solid var(--line); } .supptbl td:nth-child(3) { width: 34%; }
 /* step player v2 */
 .stepper .stage.dual { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 44px 4px 4px; }
 .stage.dual .vw { position: relative; background: var(--surface-2); border-radius: 8px; overflow: hidden; }
@@ -709,7 +712,7 @@ const MEALS = [
  { id:'D5', slot:'dinner', name:'Moong dal, sabzi & rice', prep:30, items:[['moong_dry',60],['ghee',5],['rice_raw',50],['mixed_veg',150],['greek_yogurt',150]], flex:{food:'rice_raw',step:15,min:30,max:100} }
 ];
 const TOPUPS = [ ['egg_white',99,'3 egg whites'], ['greek_yogurt',150,'Greek yogurt (150 g)'], ['milk_skim',250,'Skimmed milk (250 ml)'], ['soy_dry',25,'Soy chunks (25 g dry)'], ['whey',35,'Avvatar whey (1 scoop)'] ];
-const SLOTS = [['breakfast','Breakfast'],['lunch','Lunch'],['snack','Snack'],['dinner','Dinner'],['extra','Additional serving']];
+const SLOTS = [['breakfast','Breakfast'],['lunch','Lunch'],['snack','Snack'],['dinner','Dinner'],['extra','Additional serving'],['supp','Supplements']];
 
 // ===== Where you should feel it (form cues) — [what you should feel, what a wrong feeling means] =====
 const F_LAT = ['The sides of your back under the armpits (lats): a stretch at the top, then a squeeze as your elbows come down toward your ribs.', 'Mostly biceps or forearms means you are pulling with your hands: loosen your grip and think “elbows down”. Neck or top-of-shoulder tension means your shoulders are shrugging: keep them down, away from your ears.'];
@@ -828,6 +831,15 @@ const MICRO_KEYS = ['fib', 'ca', 'fe', 'vc', 'va', 'fol', 'na', 'as'];
 FOODS.forEach(f => { const m = MICRO[f.id]; if (m) MICRO_KEYS.forEach((k, i) => { if (m[i] != null) f[k] = m[i]; }); });
 // Hyper Rice micronutrients are only given as % of RDA on the brand chart; converted using ICMR-NIN 2020 adult-male values (estimates)
 Object.assign(FOODS.find(f => f.id === 'hyper_rice'), { ca: 200, fe: 3.8, na: 14 });
+// ===== Supplements (from the pack label, per tablet) =====
+const SUPPS = {
+  centrum_men: { name: 'Centrum Men', brand: 'Haleon', dose: '1 tablet a day, after a meal', tabG: 1.44,
+    vit: [['Vitamin A', '800 mcg', 80], ['Vitamin C', '80 mg', 100], ['Vitamin D2', '600 IU', 100], ['Vitamin E', '5 mg', 50], ['Biotin', '25 mcg', 63], ['Folate', '200 mcg', 67], ['Vitamin B12', '2.2 mcg', 100], ['Vitamin B1', '1.2 mg', 67], ['Vitamin B2', '1.2 mg', 48], ['Vitamin B3', '15 mg', 83], ['Vitamin B5', '5 mg', 100], ['Vitamin B6', '1.3 mg', 54], ['Vitamin K1', '55 mcg', 100]],
+    min: [['Calcium', '250 mg', 25], ['Iron', '3.7 mg', 19], ['Zinc', '11 mg', 65], ['Iodine', '140 mcg', 100], ['Magnesium', '66 mg', 15], ['Manganese', '1.2 mg', 30], ['Copper', '0.45 mg', 26], ['Selenium', '40 mcg', 100], ['Chromium', '17.5 mcg', 35], ['Molybdenum', '45 mcg', 100]],
+    other: 'Grape seed extract 100 mg (95% proanthocyanidins)',
+    per: { k: 2.38, p: 0.07, c: 0.47, f: 0.035, fib: 0, ca: 250, fe: 3.7, vc: 80, va: 800, fol: 200, na: 3.85, as: 0 } }
+};
+for (const [id, s] of Object.entries(SUPPS)) { const m = 100 / s.tabG; const o = { id, name: s.name + ' multivitamin', cat: 'Supplements', sv: [['1 tablet (' + s.tabG + ' g)', s.tabG]], unit: 'tablet', unitG: s.tabG, src: 'L', srcName: s.name + ' pack label (' + s.brand + '), per tablet', supp: 1, note: s.dose }; for (const [k, v] of Object.entries(s.per)) o[k] = v * m; FOODS.push(o); }
 // Daily reference values (ICMR-NIN 2020 adult men unless noted)
 const DAILY_REF = [
   { k: 'fib', name: 'Fibre', unit: 'g', min: 30, note: 'ICMR suggests about 30 g per 2,000 kcal' },
@@ -992,6 +1004,7 @@ function setSync() {
 const DEFAULT_EQUIP = Object.fromEntries(Object.keys(EQUIP_TAGS).map(k => [k, true]));
 function defaultProfile() {
   return {
+    supps: ['centrum_men'],
     age: 27, height: 168, weight: 77.2, waist: 101, bodyFat: 24, fatMass: 18.8, leanMass: 58.4,
     level: 'Beginner', location: 'Gym', diet: 'Vegetarian with eggs; no meat', goal: 'V-taper physique',
     goals2: 'Reduce waist, gain muscle, improve strength', freq: 5, maxEx: 6,
@@ -1253,7 +1266,7 @@ function adherence(n = 14) {
   let logged = 0, kcalOk = 0, protOk = 0;
   for (let d = start; d <= end; d = addDays(d, 1)) {
     const o = getDay(d); if (!o || !o.log.length) continue;
-    const slots = new Set(o.log.map(i => i.slot)); if (slots.size >= 3) logged++;
+    const slots = new Set(o.log.filter(i => i.slot !== 'supp').map(i => i.slot)); if (slots.size >= 3) logged++;
     const t = sumItems(o.log); if (t.k >= p.kcal * 0.9 && t.k <= p.kcal * 1.1) kcalOk++; if (t.p >= p.protein * 0.9) protOk++;
   }
   const s0 = p.startDate > start ? p.startDate : start;
@@ -1335,7 +1348,7 @@ function analyze() {
 
 // ===== Daily nutrient check =====
 function dayCheck(d) {
-  const p = P(); const o = getDay(d); const t = sumItems(o ? o.log : []); const meals = new Set((o ? o.log : []).map(i => i.slot)).size;
+  const p = P(); const o = getDay(d); const t = sumItems(o ? o.log : []); const meals = new Set((o ? o.log : []).filter(i => i.slot !== 'supp').map(i => i.slot)).size;
   const rows = [];
   const kp = t.k / p.kcal;
   rows.push({ name: 'Calories', v: t.k, unit: 'kcal', target: p.kcal, st: !t.k ? 'none' : kp > 1.05 ? 'over' : kp >= 0.9 ? 'ok' : 'under', txt: !t.k ? 'Nothing logged' : kp > 1.05 ? r0(t.k - p.kcal) + ' kcal over' : kp >= 0.9 ? 'Within target' : r0(p.kcal - t.k) + ' kcal under' });
@@ -1352,6 +1365,11 @@ function dayCheck(d) {
   const verdict = !t.k ? 'none' : rows[0].st === 'over' ? 'over' : (rows[0].st === 'ok' && rows[1].st === 'ok') ? 'ok' : 'mixed';
   return { t, rows, meals, verdict };
 }
+
+// ===== Supplements: taken today? =====
+function suppTaken(d, id) { const o = getDay(d); return !!(o && o.log.some(i => i.f === id)); }
+function suppToggle(d, id) { const o = day(d); const i = o.log.findIndex(x => x.f === id); if (i >= 0) o.log.splice(i, 1); else o.log.push({ id: uid(), slot: 'supp', f: id, g: SUPPS[id].tabG }); saveDay(o); return i < 0; }
+function suppDays(id, n = 7) { let c = 0; for (let i = 0; i < n; i++) if (suppTaken(addDays(today(), -i), id)) c++; return c; }
 // ===== Animated exercise illustrations =====
 // Side view faces right. Angles are absolute degrees: 0 = straight down, 90 = forward (right), 180 = up, 270/-90 = back.
 // Front view mirrors the right limbs to the left unless *L values are given.
@@ -2315,7 +2333,8 @@ function tasksFor(d) {
   L.push({ k: 'protein', label: 'Meet the protein target (' + p.protein + ' g)', auto: t.p >= p.protein * 0.97, sub: r0(t.p) + ' g so far' });
   L.push({ k: 'kcal', label: 'Stay within the calorie target', auto: false, sub: r0(t.k) + ' of ' + p.kcal + ' kcal' + (t.k > p.kcal * 1.05 ? ' — over' : '') });
   L.push({ k: 'steps', label: 'Walk ' + p.steps.toLocaleString() + ' steps', auto: (o.rec.steps || 0) >= p.steps, sub: o.rec.steps ? o.rec.steps.toLocaleString() + ' logged' : '' });
-  L.push({ k: 'meals', label: 'Record meals', auto: new Set(o.log.map(i => i.slot)).size >= 3 });
+  L.push({ k: 'meals', label: 'Record meals', auto: new Set(o.log.filter(i => i.slot !== 'supp').map(i => i.slot)).size >= 3 });
+  for (const id of (p.supps || [])) if (SUPPS[id]) L.push({ k: 'supp_' + id, label: 'Take ' + SUPPS[id].name + ' (' + SUPPS[id].dose + ')', auto: suppTaken(d, id) });
   L.push({ k: 'sleep', label: 'Sleep ' + p.sleep + ' hours', auto: (o.rec.sleep || 0) >= p.sleep, sub: o.rec.sleep ? o.rec.sleep + ' h logged' : '' });
   return L.map(x => ({ ...x, st: (o.tasks[x.k] || {}).status || (x.auto ? 'done' : ''), reason: (o.tasks[x.k] || {}).reason }));
 }
@@ -2439,7 +2458,7 @@ function vPlan(d) {
 }
 function vLog(d) {
   const o = day(d); const favs = (Store.get('favs') || { list: [] }).list;
-  let h = '<div class="row gap"><button class="btn primary" data-act="addFood">+ Add food</button>' + (favs.length ? '<button class="btn ghost" data-act="favPick">Favourites (' + favs.length + ')</button>' : '') + '</div>';
+  let h = suppCard(d) + '<div class="row gap"><button class="btn primary" data-act="addFood">+ Add food</button>' + (favs.length ? '<button class="btn ghost" data-act="favPick">Favourites (' + favs.length + ')</button>' : '') + '</div>';
   for (const [slot, label] of SLOTS) {
     const items = o.log.filter(i => i.slot === slot); if (!items.length) continue; const t = sumItems(items);
     h += '<section class="card"><div class="card-h"><h3>' + label + '</h3><small class="nums">' + r0(t.k) + ' kcal · ' + r0(t.p) + ' g P · ' + r0(t.c) + ' C · ' + r0(t.f) + ' F</small></div><ul class="items">' +
@@ -2697,6 +2716,20 @@ function vFoodHistory() {
   return h;
 }
 const VIEWS = { home: vHome, workout: vWorkoutCal, session: vWorkout, plan: vWorkoutCal, food: vFood, progress: vProgress, more: vMore, exercises: vExercises, muscles: vMuscles, calendar: vWorkoutCal, profile: vProfile, prefs: vPrefs, safety: vSafety };
+
+function suppCard(d) {
+  const p = P(); const ids = (p.supps || []).filter(id => SUPPS[id]); if (!ids.length) return '';
+  return ids.map(id => {
+    const s = SUPPS[id]; const on = suppTaken(d, id); const open = ui.suppOpen === id;
+    const key = [['Vitamin B12', 'mcg'], ['Vitamin D2'], ['Zinc'], ['Iodine'], ['Selenium'], ['Magnesium']].map(([n]) => [...s.vit, ...s.min].find(r => r[0] === n)).filter(Boolean);
+    const tbl = rows => '<table class="supptbl"><tbody>' + rows.map(([n, q, pc]) => '<tr><td>' + n + '</td><td class="nums">' + q + '</td><td>' + bar(pc, 100, pc >= 100 ? 'goodb' : '') + '</td><td class="nums">' + pc + '%</td></tr>').join('') + '</tbody></table>';
+    return '<section class="card supp' + (on ? ' on' : '') + '"><div class="card-h"><div><div class="eyebrow">Daily supplement</div><h3>' + esc(s.name) + '</h3><small class="muted">' + esc(s.dose) + '</small></div>' +
+      '<button class="btn ' + (on ? 'good' : 'primary') + '" data-act="suppToggle" data-id="' + id + '" aria-pressed="' + on + '">' + (on ? '✓ Taken' : 'Mark as taken') + '</button></div>' +
+      '<p class="sm">' + (on ? 'Counted in today’s totals. ' : '') + 'One tablet gives: ' + key.map(([n, q, pc]) => '<b>' + n.replace('Vitamin ', '') + '</b> ' + pc + '%').join(' · ') + '. Calcium, iron, vitamins A and C and folate are added to your daily check below.</p>' +
+      '<button class="btn tiny ghost" data-act="suppOpen" data-id="' + id + '">' + (open ? 'Hide label' : 'Full label (% of daily need)') + '</button> <button class="btn tiny ghost" data-act="suppStop" data-id="' + id + '">I stopped taking it</button>' +
+      (open ? '<h4>Vitamins</h4>' + tbl(s.vit) + '<h4>Minerals</h4>' + tbl(s.min) + '<p class="muted sm">' + esc(s.other) + '. Percentages are of the daily need for men printed on the pack.</p>' : '') + '</section>';
+  }).join('');
+}
 // ===== Workout calendar: tap a date → that day's exercises → complete workout =====
 function activeOn(d) { return sessions().filter(s => s.date === d && s.status === 'active').pop(); }
 function exDone(e) { return !!(e.marked || e.sets.some(z => z.done)); }
@@ -2874,7 +2907,7 @@ const BOOST = {
   as: ['Cut the sugar in tea first', 'Skip biscuits, sweets and packaged juices']
 };
 function avgNutrition(n = 7) {
-  const days = []; for (let i = 0; i < 30 && days.length < n; i++) { const d = addDays(today(), -i); const o = getDay(d); if (o && new Set(o.log.map(x => x.slot)).size >= 2) days.push(d); }
+  const days = []; for (let i = 0; i < 30 && days.length < n; i++) { const d = addDays(today(), -i); const o = getDay(d); if (o && new Set(o.log.filter(x => x.slot !== 'supp').map(x => x.slot)).size >= 2) days.push(d); }
   if (!days.length) return null; const sum = {}; const keys = ['k', 'p', 'c', 'f', ...MICRO_KEYS];
   keys.forEach(k => sum[k] = 0); days.forEach(d => { const t = dayTotals(d); keys.forEach(k => sum[k] += t[k] || 0); });
   keys.forEach(k => sum[k] /= days.length); return { days, avg: sum };
@@ -2891,17 +2924,19 @@ function vInsights() {
       : '<div class="note good">Your logged days meet the main targets the app tracks. Keep going.</div>';
     h += '<p class="muted sm">Averages only count foods you log. Calcium, iron and vitamins are under-counted when a food has no value for them (MillD flour, Hyper Rice and whey list only some).</p></section>';
   }
-  h += '<section class="card"><h2>Not tracked by the app, but important for you</h2><p class="muted sm">These are often low in vegetarian Indian diets. The only way to know is a blood test.</p>' +
-    [['Vitamin B12', 'Found only in animal foods: milk, curd, paneer, eggs and whey. Vegetarians are often low. Ask for a B12 test.'],
-     ['Vitamin D', 'Very common deficiency in India. 15–20 minutes of midday sun on arms and legs most days; egg yolks; fortified milk. Test 25-OH vitamin D before taking high-dose supplements.'],
-     ['Zinc', 'Pumpkin seeds, chana, cashews, dal, milk, eggs. Supports testosterone and sperm health.'],
-     ['Magnesium', 'Pumpkin seeds, almonds, groundnuts, bajra or ragi, leafy greens, dal. Helps sleep and muscle recovery.'],
+  const cm = (p.supps || []).includes('centrum_men'); const cd = cm ? suppDays('centrum_men') : 0;
+  if (cm) h += '<section class="card"><h2>Your multivitamin: Centrum Men</h2><p>Taken on <b>' + cd + ' of the last 7 days</b>. On those days one tablet covers 100% of <b>vitamin B12, vitamin D, iodine and selenium</b>, 65% of zinc and 67% of folate — the nutrients a vegetarian diet most often misses.</p><ul><li>It adds only <b>3.7 mg iron, 250 mg calcium and 66 mg magnesium</b>, so keep eating dal, paneer/curd, greens and seeds for those.</li><li>600 IU of vitamin D keeps normal levels up but won’t correct a real deficiency — check a vitamin D blood test.</li><li>Take it after a meal, with water, not with tea. Don’t add another multivitamin on top.</li></ul></section>';
+  h += '<section class="card"><h2>Not tracked by the app, but important for you</h2><p class="muted sm">These are often low in vegetarian Indian diets. The only way to know is a blood test.' + (cm ? ' Your Centrum Men covers part of each, as noted.' : '') + '</p>' +
+    [['Vitamin B12', 'Found only in animal foods: milk, curd, paneer, eggs and whey. Vegetarians are often low. Ask for a B12 test.' + (cm ? ' Centrum Men: 2.2 mcg (100%).' : '')],
+     ['Vitamin D', 'Very common deficiency in India. 15–20 minutes of midday sun on arms and legs most days; egg yolks; fortified milk. Test 25-OH vitamin D before taking high-dose supplements.' + (cm ? ' Centrum Men: 600 IU (100%).' : '')],
+     ['Zinc', 'Pumpkin seeds, chana, cashews, dal, milk, eggs. Supports testosterone and sperm health.' + (cm ? ' Centrum Men: 11 mg (65%).' : '')],
+     ['Magnesium', 'Pumpkin seeds, almonds, groundnuts, bajra or ragi, leafy greens, dal. Helps sleep and muscle recovery.' + (cm ? ' Centrum Men: only 66 mg (15%) — food still matters.' : '')],
      ['Omega-3', 'Flaxseed, chia and walnuts give the plant form (ALA). With no fish in your diet, an algae-based omega-3 is an option to discuss with a doctor.']]
     .map(([n, s]) => '<div class="lack"><b>' + n + '</b><p>' + esc(s) + '</p></div>').join('') + '</section>';
   h += '<section class="card"><h2>Men’s and sexual health</h2><p>What helps most is not a single food: losing waist fat, strength training, 7–8 hours of sleep, not smoking and keeping alcohol low all support testosterone, erections and energy. Your current plan already does most of this.</p>' +
     '<h4>Foods with the best evidence</h4><ul><li><b>Zinc:</b> pumpkin seeds (1 tbsp a day), chana, eggs, curd.</li><li><b>Blood flow (nitrates):</b> beetroot, palak, other leafy greens.</li><li><b>Citrulline and antioxidants:</b> watermelon, pomegranate, guava.</li><li><b>Healthy fats:</b> walnuts, almonds, groundnuts, flax and chia — a small handful, not more.</li><li><b>Vitamin D and B12:</b> sun, eggs, dairy (see above).</li></ul>' +
     '<h4>Fruits to rotate</h4><p>Guava or amla (vitamin C), pomegranate, watermelon, orange, papaya, banana (potassium for training days), apple.</p>' +
-    '<h4>About a multivitamin</h4><p>A basic daily multivitamin can cover small gaps, but it doesn’t replace food. For you the likely gaps are vitamin B12 and vitamin D. Get a blood test (B12, vitamin D, haemoglobin and ferritin) and take doses your doctor suggests rather than high-dose products. Don’t exceed 40 mg of zinc a day from supplements.</p>' +
+    '<h4>About a multivitamin</h4><p>' + (cm ? 'You’re taking Centrum Men, a standard-dose multivitamin — a sensible choice. ' : '') + 'A basic daily multivitamin can cover small gaps, but it doesn’t replace food. For you the likely gaps are vitamin B12 and vitamin D. Get a blood test (B12, vitamin D, haemoglobin and ferritin) and take doses your doctor suggests rather than high-dose products. Don’t exceed 40 mg of zinc a day from supplements.</p>' +
     '<p class="muted sm">If you have ongoing problems with erections or libido, see a doctor — it can be an early sign of heart or hormone issues, and it is treatable. This app gives general guidance, not medical advice.</p></section>';
   return h;
 }
@@ -3109,7 +3144,10 @@ const A = {
   schedMode(el) { const p = P(); p.schedMode = el.dataset.v; saveProfile(p); render(); toast('Schedule updated'); },
   exInfo(el) { openSheet({ type: 'exInfo', id: el.dataset.id }); $('#sheet .panel') && ($('#sheet .panel').scrollTop = 0); },
   // tasks & recovery
-  taskDone(el) { const d = day(today()); const k = el.dataset.k; const cur = tasksFor(today()).find(x => x.k === k); d.tasks[k] = cur.st === 'done' ? { status: 'open' } : { status: 'done' }; saveDay(d); rerenderKeepScroll(); },
+  suppToggle(el) { const d = ui.foodDate || today(); const on = suppToggle(d, el.dataset.id); toast(on ? SUPPS[el.dataset.id].name + ' marked as taken' : 'Removed'); rerenderKeepScroll(); },
+  suppOpen(el) { ui.suppOpen = ui.suppOpen === el.dataset.id ? null : el.dataset.id; rerenderKeepScroll(); },
+  suppStop(el) { if (!confirm('Stop tracking ' + SUPPS[el.dataset.id].name + '? Days you already logged stay as they are.')) return; const p = P(); p.supps = (p.supps || []).filter(x => x !== el.dataset.id); saveProfile(p); render(); },
+  taskDone(el) { if (el.dataset.k.startsWith('supp_')) { suppToggle(today(), el.dataset.k.slice(5)); rerenderKeepScroll(); return; } const d = day(today()); const k = el.dataset.k; const cur = tasksFor(today()).find(x => x.k === k); d.tasks[k] = cur.st === 'done' ? { status: 'open' } : { status: 'done' }; saveDay(d); rerenderKeepScroll(); },
   taskSkip(el) { const k = el.dataset.k; const d = day(today()); if ((d.tasks[k] || {}).status === 'skipped') { d.tasks[k] = { status: 'open' }; saveDay(d); ui.skipTask = null; } else ui.skipTask = k; rerenderKeepScroll(); if (ui.skipTask) $('#skipReason')?.focus(); },
   taskSkipSave(el) { const d = day(today()); d.tasks[el.dataset.k] = { status: 'skipped', reason: ($('#skipReason')?.value || '').trim() }; saveDay(d); ui.skipTask = null; rerenderKeepScroll(); },
   rec(el) { const d = day(today()); d.rec = d.rec || {}; d.rec[el.dataset.k] = Number(el.dataset.v); saveDay(d); rerenderKeepScroll(); },
